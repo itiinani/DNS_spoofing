@@ -1,0 +1,139 @@
+
+
+# DNS Injection and Detection
+
+#Test Environment /OS-------------------------------------------------------------------------
+I used two separate VMs for DNS Detect and DNS Inject.
+Language Used - Python 3.6
+
+DNS Detect -
+Linux 4.13.0-19-generic x86_64
+Distributor ID:	Ubuntu
+Description:	Ubuntu 17.10
+Release:	17.10
+Codename:	artful
+
+DNS Inject -
+Linux 3.13.0-32-generic x86_64
+Distributor ID:	Ubuntu
+Description:	Ubuntu 12.04.5 LTS
+Release:	12.04
+Codename:	precise
+
+
+#To run----------------------------------------------------------------------------------
+
+Command line and options to run the program -
+
+1. To start DNS inject:
+
+if interface and hostfile name is specified-
+
+$sudo python ./dnsinject.py -i eth0 -h hostnames
+DNS Inject started....
+sniffing on interface:  eth0
+host file names : hostnames
+
+
+Output at Victim's machine when dig command is used-
+
+$dig @8.8.8.8 www.google.com   (@Dns-server IP)
+
+; <<>> DiG 9.10.3-P4-Ubuntu <<>> @8.8.8.8 www.google.com
+; (1 server found)
+;; global options: +cmd
+;; Got answer:
+;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 42358
+;; flags: qr aa; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 0
+
+;; QUESTION SECTION:
+;www.google.com.			IN	A
+
+;; ANSWER SECTION:
+www.google.com.		10	IN	A	3.3.3.3
+
+;; Query time: 6 msec
+;; SERVER: 8.8.8.8#53(8.8.8.8)
+;; WHEN: Mon Dec 11 20:29:25 PST 2017
+;; MSG SIZE  rcvd: 62
+
+if interface,hostfile and bpf expression is specified -
+
+$sudo python ./dnsinject.py -i eth0 -h hostnames udp port 53
+DNS Inject started....
+sniffing on interface:  eth0
+host file names : hostnames
+Filter expression: udp port 53
+-----------------------------------------------------------------------
+start the dns inject 
+
+2. To start DNS detect:   (bpf expression is optional)
+
+$sudo python ./dnsdetect.py -i ens33 udp port 53
+
+ens33
+None
+DNS forged response detector started...
+sniffing on interface:ens33
+Filter expression:udp port 53
+
+Output when spoofed response is detected -
+
+20171211-20:34:05.888152 DNS poisoning attempt
+TXID 0x5ced Request www.google.com
+Answer1 ['3.3.3.3']
+Answer2 ['172.217.7.4']
+
+3. DNSDetect read from tracefile -
+
+$sudo python ./dnsdetect.py -r tracefile.pcap
+
+output-
+
+DNS forged response detector started...
+Reading pcap file trace:tracefile.pcap
+Filter expression:u
+192.168.179.129
+20171209-04:19:57.762292 DNS poisoning attempt
+TXID 0x9e5f Request www.amazon.com
+Answer1 ['192.168.179.129']
+Answer2 ['52.84.39.142']
+2.2.2.2
+20171209-04:20:11.892288 DNS poisoning attempt
+TXID 0x8ae5 Request www.facebook.com
+Answer1 ['2.2.2.2']
+Answer2 ['31.13.69.228']
+3.3.3.3
+20171209-04:20:20.272797 DNS poisoning attempt
+TXID 0xf693 Request www.google.com
+Answer1 ['3.3.3.3']
+Answer2 ['172.217.6.196']
+
+
+#To check false positives----------------------------------------------------------------------------------
+Each new packet will be checked with list of previous packets if initial check of checking TXID and src ip,port,rdata
+indicate that it is a spoofed packet then another check for IPs in rdata list will be performed which will check if
+at least one IP matches with the previous packet.If not then it is a spoofed packet.
+If one or more IPs match then it is a False positive.
+Also I attempted to add code for reverse lookup to check for false positive,in which if initial check indicates that it
+is a spoofed packet then reverse lookup will be performed.Attacker's IP will return blank in this case since no PTR
+record is found. New packet's reverse lookup value will be compared with previous packet's reverse lookup value.
+If they match then it is a False positive.
+
+#General Design --------------------------------------------------------------------------------
+
+#Files
+dnsinject.py - to inject spoofed packets
+                It gets the arguments from command line and starts sniffing.
+                If interface not specified takes default interface as ens33.
+                If hostfile not specified spoofs the DNS responses with attacker's IP, machine's IP.
+                As packet with DNS query record is received it passes it to dnsinject and a forged packet is created
+                and sent.
+dnsdetect.py: to detect spoofed packets.
+hostnames - to store list of spoofed domain names
+
+#References--------------------------------------------------------------------------------------
+
+1.https://stackoverflow.com/questions/11735821/python-get-localhost-ip
+2.https://stackoverflow.com/questions/12501780/dnsrr-iteration
+3.https://stackoverflow.com/questions/33812737/getting-time-from-scapy-packet
